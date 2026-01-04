@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>BYKUS 019 - Centered</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background-color: #141E23;
+    }
+    #loading {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: white;
+      font-family: sans-serif;
+      font-size: 14px;
+      pointer-events: none;
+    }
+    input[type="file"] {
+      position: absolute;
+      top: 15px;
+      left: 15px;
+      z-index: 100;
+      opacity: 0.8;
+      transform: scale(1.1);
+      transform-origin: top left;
+    }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/p5@1.9.0/lib/p5.min.js"></script>
+</head>
+<body>
+
+<div id="loading">资源加载中...</div>
+
+<script>
+/* --- 修复版代码：背景图片居中 --- */
+
+let snake;
+let bubbles = [];
+let leaves = [];
+let bgImage = null; 
+let inputButton;    
+
+// --- 配置区域 ---
+let baseString = "BYKUS "; 
+let bubbleText = "019 BUBBLE GREEN ";
+
+let snakeColorsHex = [
+  '#E2ECEB', '#A7BB86', '#89A751', '#7FAA8E', '#C8D8D7'  
+];
+
+let snakeSpeed = 2.5; 
+let turnSpeed = 0.08; 
+
+function setup() {
+  createCanvas(windowWidth, windowHeight);
+  textAlign(CENTER, CENTER);
+  
+  // 隐藏加载文字
+  select('#loading').style('display', 'none');
+  
+  inputButton = createFileInput(handleFile);
+  inputButton.position(20, 20);
+  inputButton.style('color', 'white'); 
+  
+  snake = new Snake(width / 2, height / 2);
+  
+  for (let i = 0; i < 8; i++) {
+    bubbles.push(new Bubble());
+  }
+}
+
+function handleFile(file) {
+  if (file.type === 'image') {
+    bgImage = loadImage(file.data);
+  } else {
+    bgImage = null;
+  }
+}
+
+function draw() {
+  drawBackground(); // 这里调用了修复后的背景函数
+
+  // 1. 气泡逻辑
+  for (let i = bubbles.length - 1; i >= 0; i--) {
+    let b = bubbles[i];
+    b.update();
+    b.display();
+    
+    if (snake.eats(b)) {
+      let isBigBang = (snake.units >= snake.maxUnits);
+      createExplosion(b.pos.x, b.pos.y, isBigBang);
+      snake.grow(); 
+      bubbles.splice(i, 1);
+      bubbles.push(new Bubble());
+    }
+  }
+
+  // 2. 烟花逻辑
+  for (let i = leaves.length - 1; i >= 0; i--) {
+    let l = leaves[i];
+    l.update();
+    l.display();
+    if (l.isDead()) {
+      leaves.splice(i, 1);
+    }
+  }
+
+  // 3. 蛇逻辑
+  snake.update();
+  snake.display();
+  
+  if (!bgImage) {
+    fill(255, 150);
+    noStroke();
+    textSize(14);
+    text("↖ 点击上传图片", 100, 55);
+  }
+}
+
+// 🚩 核心修复：背景居中算法
+function drawBackground() {
+  if (bgImage) {
+    push();
+    
+    // 1. 设定图片绘制模式为“中心点”
+    imageMode(CENTER);
+    
+    // 2. 计算缩放比例 (Cover模式：保证填满屏幕，不留黑边)
+    let scaleX = width / bgImage.width;
+    let scaleY = height / bgImage.height;
+    let scale = max(scaleX, scaleY); // 取较大的比例
+    
+    // 3. 在屏幕中心 (width/2, height/2) 绘制图片
+    image(bgImage, width / 2, height / 2, bgImage.width * scale, bgImage.height * scale);
+    
+    pop();
+  } else {
+    background(20, 30, 35);
+  }
+}
+
+function createExplosion(x, y, isBig) {
+  let count = isBig ? 150 : 50; 
+  for (let j = 0; j < count; j++) {
+    leaves.push(new Leaf(x, y, isBig));
+  }
+}
+
+function touchMoved() {
+  return false;
+}
+
+function windowResized() {
+  resizeCanvas(windowWidth, windowHeight);
+  inputButton.position(20, 20); 
+}
+
+// --- 类定义保持不变 ---
+
+class Snake {
+  constructor(x, y) {
+    this.pos = createVector(x, y); 
+    this.vel = createVector(1, 0); 
+    this.angle = 0;
+    this.history = []; 
+    this.units = 1; 
+    this.maxUnits = 8; 
+    this.charSpacing = 12; 
+    this.colors = snakeColorsHex.map(hex => color(hex));
+  }
+  
+  getFullString() {
+    let s = "";
+    for(let i=0; i<this.units; i++) {
+      s += baseString;
+    }
+    return s;
+  }
+
+  update() {
+    let closest = null;
+    let recordDist = Infinity;
+    
+    for (let b of bubbles) {
+      let d = dist(this.pos.x, this.pos.y, b.pos.x, b.pos.y);
+      if (d < recordDist) {
+        recordDist = d;
+        closest = b;
+      }
+    }
+
+    let targetX = mouseX;
+    let targetY = mouseY;
+    
+    if (mouseX === 0 && mouseY === 0) {
+        targetX = width/2 + sin(frameCount*0.05)*100;
+        targetY = height/2 + cos(frameCount*0.05)*100;
+    }
+    
+    let targetPos = closest ? closest.pos : createVector(targetX, targetY);
+    let desiredAngle = atan2(targetPos.y - this.pos.y, targetPos.x - this.pos.x);
+    
+    let diff = desiredAngle - this.angle;
+    if (diff > PI) diff -= TWO_PI;
+    if (diff < -PI) diff += TWO_PI;
+    this.angle += diff * turnSpeed;
+    
+    this.vel = p5.Vector.fromAngle(this.angle);
+    this.vel.mult(snakeSpeed);
+    this.pos.add(this.vel);
+    
+    this.history.unshift(this.pos.copy());
+    
+    let fullStr = this.getFullString();
+    let maxHistory = fullStr.length * (this.charSpacing / snakeSpeed * 1.5) + 50; 
+    
+    if (this.history.length > maxHistory) {
+      this.history.pop();
+    }
+    
+    this.checkEdges();
+  }
+  
+  grow() {
+    this.units++; 
+    if (this.units > this.maxUnits) {
+      this.units = 1;
+    }
+  }
+
+  checkEdges() {
+    if (this.pos.x > width) this.pos.x = 0;
+    if (this.pos.x < 0) this.pos.x = width;
+    if (this.pos.y > height) this.pos.y = 0;
+    if (this.pos.y < 0) this.pos.y = height;
+    
+    if (this.history.length > 0) {
+        if (dist(this.pos.x, this.pos.y, this.history[0].x, this.history[0].y) > snakeSpeed * 2) {
+           this.history = []; 
+           this.history.push(this.pos.copy());
+        }
+    }
+  }
+
+  eats(bubble) {
+    return dist(this.pos.x, this.pos.y, bubble.pos.x, bubble.pos.y) < (bubble.r + 10);
+  }
+
+  getGradientColor(t) {
+    let numColors = this.colors.length;
+    let scaledT = t * (numColors - 1);
+    let index = floor(scaledT);
+    let amt = scaledT - index;
+    if (index >= numColors - 1) return this.colors[numColors - 1];
+    return lerpColor(this.colors[index], this.colors[index+1], amt);
+  }
+
+  display() {
+    noStroke();
+    textStyle(BOLD);
+    let fullStr = this.getFullString();
+    
+    for (let i = 0; i < fullStr.length; i++) {
+      let pathIndex = floor(i * (this.charSpacing / snakeSpeed)); 
+      if (pathIndex < this.history.length) {
+        let p = this.history[pathIndex];
+        let progress = map(i, 0, fullStr.length, 0, 1);
+        let c = this.getGradientColor(progress);
+        fill(c);
+        let size = map(i, 0, fullStr.length, 28, 14);
+        textSize(size);
+        push();
+        translate(p.x, p.y);
+        if (pathIndex + 1 < this.history.length) {
+            let nextP = this.history[pathIndex + 1];
+            let angle = atan2(p.y - nextP.y, p.x - nextP.x);
+            rotate(angle + PI);
+        }
+        text(fullStr.charAt(i), 0, 0);
+        pop();
+      }
+    }
+  }
+}
+
+class Bubble {
+  constructor() {
+    this.pos = createVector(random(width), random(height));
+    this.r = random(35, 50); 
+    this.noiseOffset = random(1000);
+    this.rotation = random(TWO_PI);
+    this.rotSpeed = random(-0.01, 0.01); 
+  }
+  
+  update() {
+    this.pos.x += map(noise(this.noiseOffset), 0, 1, -1, 1);
+    this.pos.y += map(noise(this.noiseOffset + 1000), 0, 1, -1, 1);
+    this.noiseOffset += 0.005;
+    this.rotation += this.rotSpeed;
+    
+    if(this.pos.x < -50) this.pos.x = width+50;
+    if(this.pos.x > width+50) this.pos.x = -50;
+    if(this.pos.y < -50) this.pos.y = height+50;
+    if(this.pos.y > height+50) this.pos.y = -50;
+  }
+
+  display() {
+    push();
+    translate(this.pos.x, this.pos.y);
+    rotate(this.rotation);
+    noStroke();
+    fill(255, 10); 
+    ellipse(0, 0, this.r * 2);
+    let str = bubbleText;
+    let anglePerChar = TWO_PI / str.length;
+    fill(255); 
+    textSize(10);
+    for (let i = 0; i < str.length; i++) {
+      let char = str.charAt(i);
+      push();
+      rotate(i * anglePerChar);
+      translate(0, -this.r); 
+      text(char, 0, 0);
+      pop();
+    }
+    fill(255, 180);
+    rotate(-this.rotation - QUARTER_PI); 
+    ellipse(0, -this.r * 0.6, this.r * 0.4, this.r * 0.25);
+    pop();
+  }
+}
+
+class Leaf {
+  constructor(x, y, isBig) {
+    this.pos = createVector(x, y);
+    if (isBig) {
+      this.vel = p5.Vector.random2D().mult(random(3, 15));
+      this.decay = 0.4; 
+    } else {
+      this.vel = p5.Vector.random2D().mult(random(5, 12));
+      this.decay = 1.5; 
+    }
+    this.lifespan = 255;
+    this.color = color(random(snakeColorsHex));
+    this.size = random(4, 8);
+    this.drag = 0.96; 
+  }
+
+  update() {
+    this.vel.mult(this.drag);
+    this.pos.add(this.vel);
+    this.pos.y += 0.5; 
+    this.lifespan -= this.decay;
+  }
+
+  display() {
+    noStroke();
+    let c = this.color;
+    fill(red(c), green(c), blue(c), this.lifespan);
+    ellipse(this.pos.x, this.pos.y, this.size);
+  }
+
+  isDead() { return this.lifespan < 0; }
+}
+</script>
+</body>
+</html>
